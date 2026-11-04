@@ -67,7 +67,8 @@ WantedBy=multi-user.target
 UNIT
 
 systemctl daemon-reload
-systemctl enable --now th-relay
+systemctl enable th-relay
+systemctl restart th-relay
 
 echo "[4/4] 自检"
 sleep 3
