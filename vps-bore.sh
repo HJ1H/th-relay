@@ -9,6 +9,7 @@
 # 两个端口都会自动挑没被占用的（bore.pub 上同端口先到先得）。
 set -uo pipefail
 
+VER="v3-2026-11-04"
 BORE_BIN=/usr/local/bin/bore
 LOCAL_SSH_PORT="${LOCAL_SSH_PORT:-22}"
 LOCAL_RELAY_PORT="${LOCAL_RELAY_PORT:-8080}"
@@ -18,7 +19,7 @@ RELAY_PORT_PREF="${RELAY_PORT_PREF:-42777}"
 # 所有人类可读输出一律走 stderr，stdout 只留给要被 $(...) 抓取的纯数据
 say() { printf '%s\n' "$@" >&2; }
 
-say "== bore 固定入口安装"
+say "== bore 固定入口安装  [$VER]"
 say "   本机 ssh=$LOCAL_SSH_PORT  relay=$LOCAL_RELAY_PORT   首选端口 $SSH_PORT_PREF / $RELAY_PORT_PREF"
 
 # ---------- 1. 装 bore ----------
@@ -44,6 +45,20 @@ if ! "$BORE_BIN" --version >/dev/null 2>&1; then
 fi
 say "   $("$BORE_BIN" --version 2>&1 | head -1)"
 
+# 自动确认「申请固定远端端口」这个参数到底叫什么，别凭记忆
+PORT_FLAG=""
+help_local=$("$BORE_BIN" local --help 2>&1)
+if printf '%s' "$help_local" | grep -q -- '--port'; then
+  PORT_FLAG="--port"
+elif printf '%s' "$help_local" | grep -qE '(^|[[:space:]])-p([,[:space:]]|$)'; then
+  PORT_FLAG="-p"
+else
+  say "!! bore local 里找不到申请固定端口的参数，帮助原文如下："
+  printf '%s\n' "$help_local" | sed 's/^/     /' >&2
+  exit 5
+fi
+say "   固定端口参数：$PORT_FLAG"
+
 # ---------- 2. 挑端口 ----------
 # stdout 只输出最终端口号，其余提示全部 >&2，避免污染返回值
 pick_port() { # $1=本地端口 $2=首选远端端口
@@ -51,7 +66,7 @@ pick_port() { # $1=本地端口 $2=首选远端端口
   for i in 0 1 2 3 4 5; do
     cand=$((pref + i * 1000))
     printf '   试端口 %s ... ' "$cand" >&2
-    timeout 8 "$BORE_BIN" local "$lport" --to bore.pub --port "$cand" >/tmp/bore-try.log 2>&1
+    timeout 8 "$BORE_BIN" local "$lport" --to bore.pub "$PORT_FLAG" "$cand" >/tmp/bore-try.log 2>&1
     got=$(grep -oE "listening at bore\.pub:[0-9]+" /tmp/bore-try.log | head -1 | grep -oE '[0-9]+$')
     if [ -n "$got" ]; then
       say "可用"
@@ -87,7 +102,7 @@ write_unit() { # $1=name $2=local $3=remote $4=desc
   '' \
   '[Service]' \
   'Type=simple' \
-  "ExecStart=$BORE_BIN local $2 --to bore.pub --port $3" \
+  "ExecStart=$BORE_BIN local $2 --to bore.pub $PORT_FLAG $3" \
   'Restart=always' \
   'RestartSec=10' \
   '' \
@@ -96,6 +111,9 @@ write_unit() { # $1=name $2=local $3=remote $4=desc
 }
 write_unit bore-ssh   "$LOCAL_SSH_PORT"   "$SSH_PORT"   ssh
 write_unit bore-relay "$LOCAL_RELAY_PORT" "$RELAY_PORT" relay
+say "   实际写入的启动命令："
+say "     $(grep '^ExecStart' /etc/systemd/system/bore-ssh.service)"
+say "     $(grep '^ExecStart' /etc/systemd/system/bore-relay.service)"
 
 systemctl daemon-reload
 systemctl stop bore-ssh bore-relay 2>/dev/null || true
