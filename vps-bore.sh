@@ -107,7 +107,17 @@ start_tunnel() { # $1=unit $2=local $3=pref  → stdout 输出最终端口号
 }
 
 say "== [2/4] 建立隧道（bore.pub 上同端口先到先得）"
-SSH_PORT=$(start_tunnel bore-ssh "$LOCAL_SSH_PORT" "$SSH_PORT_PREF") || { say "!! SSH 隧道建立失败"; exit 3; }
+# 通过 SSH 在远端跑本脚本时，重启 bore-ssh 会把自己踢下线。
+# SKIP_SSH=1 表示沿用已在跑的 SSH 隧道，只重建 relay。
+SKIP_SSH="${SKIP_SSH:-0}"
+if [ "$SKIP_SSH" = 1 ] && systemctl is-active --quiet bore-ssh 2>/dev/null; then
+  SSH_PORT=$(journalctl -u bore-ssh -n 200 --no-pager 2>/dev/null \
+             | grep -oE 'listening at bore\.pub:[0-9]+' | tail -1 | grep -oE '[0-9]+$')
+  say "   bore-ssh 已在跑，沿用端口 ${SSH_PORT:-?}（SKIP_SSH=1）"
+  [ -n "${SSH_PORT:-}" ] || SSH_PORT="$SSH_PORT_PREF"
+else
+  SSH_PORT=$(start_tunnel bore-ssh "$LOCAL_SSH_PORT" "$SSH_PORT_PREF") || { say "!! SSH 隧道建立失败"; exit 3; }
+fi
 RELAY_PORT=$(start_tunnel bore-relay "$LOCAL_RELAY_PORT" "$RELAY_PORT_PREF") || { say "!! relay 隧道建立失败"; exit 3; }
 
 for v in "$SSH_PORT" "$RELAY_PORT"; do
