@@ -93,6 +93,30 @@ EOF
 echo "== 目标服务端 $SERVER_ADDR:$SERVER_PORT   本机架构 $ARCH"
 echo "== 端口规划 ssh->$SSH_REMOTE_PORT  relay($RELAY_LOCAL_PORT)->$RELAY_REMOTE_PORT"
 
+echo "== [预检] 本机 sshd（frp 只是把本机 22 转出去，本机没 sshd 就白转）"
+if ! ss -lnt 2>/dev/null | grep -qE '(^|[.:])22 '; then
+  echo "   22 端口没在听，尝试安装 openssh-server"
+  if command -v apt-get >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq >/dev/null 2>&1
+    apt-get install -y -qq openssh-server >/dev/null 2>&1
+    mkdir -p /run/sshd
+    systemctl enable --now ssh >/dev/null 2>&1 || systemctl enable --now sshd >/dev/null 2>&1 || true
+    sleep 2
+  fi
+fi
+if ss -lnt 2>/dev/null | grep -qE '(^|[.:])22 '; then
+  echo "   sshd 在听 :22"
+  # 面板给的是 root+密码登录；debian 默认 PermitRootLogin 是 prohibit-password，会直接拒密码
+  if grep -qiE '^\s*PermitRootLogin\s+prohibit-password' /etc/ssh/sshd_config 2>/dev/null; then
+    echo "   !! sshd 禁止 root 密码登录，改为 yes（面板本来就是密码登录模式）"
+    sed -i 's/^\s*PermitRootLogin\s\+prohibit-password/PermitRootLogin yes/I' /etc/ssh/sshd_config
+    systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+  fi
+else
+  echo "   !! 22 仍然没在听 —— SSH 那条代理会 start error，但 relay 代理不受影响"
+fi
+
 LOG="$work/frpc-test.log"
 OK_VER=""; OK_BIN=""; OK_CFG=""
 
