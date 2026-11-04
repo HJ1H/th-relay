@@ -17,26 +17,35 @@ cat > "$CONF" <<'CADDY'
 :8080 {
 	encode zstd gzip
 
-	reverse_proxy /v1/* https://tokenharbor.ai {
-		header_up Host tokenharbor.ai
-		transport http {
-			tls_server_name tokenharbor.ai
-			tls_timeout 15s
+	handle /v1/* {
+		reverse_proxy https://tokenharbor.ai {
+			header_up Host tokenharbor.ai
+			transport http {
+				tls_server_name tokenharbor.ai
+				tls_timeout 15s
+			}
+			flush_interval -1
 		}
-		flush_interval -1
 	}
 
-	reverse_proxy /zen/* https://opencode.ai {
-		header_up Host opencode.ai
-		transport http {
-			tls_server_name opencode.ai
-			tls_timeout 15s
+	handle /zen/* {
+		reverse_proxy https://opencode.ai {
+			header_up Host opencode.ai
+			transport http {
+				tls_server_name opencode.ai
+				tls_timeout 15s
+			}
+			flush_interval -1
 		}
-		flush_interval -1
 	}
 
-	respond /health 200
-	respond 404
+	handle /health {
+		respond 200
+	}
+
+	handle {
+		respond 404
+	}
 }
 CADDY
 
