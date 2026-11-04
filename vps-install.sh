@@ -7,8 +7,11 @@ CADDY_BIN=/usr/local/bin/caddy
 CONF=/etc/caddy/Caddyfile
 
 echo "[1/4] 下载 Caddy 静态二进制"
-curl -fsSL -o "$CADDY_BIN" "https://caddyserver.com/api/download?os=linux&arch=amd64"
-chmod +x "$CADDY_BIN"
+# 二进制正在被运行中的服务占用时，直接覆盖会 ETXTBSY（curl 报 23），先停服务
+systemctl stop th-relay 2>/dev/null || true
+curl -fsSL -o /tmp/caddy.new "https://caddyserver.com/api/download?os=linux&arch=amd64"
+chmod +x /tmp/caddy.new
+mv -f /tmp/caddy.new "$CADDY_BIN"
 "$CADDY_BIN" version
 
 echo "[2/4] 写 Caddyfile"
