@@ -92,6 +92,11 @@ EOF
 
 echo "== 目标服务端 $SERVER_ADDR:$SERVER_PORT   本机架构 $ARCH"
 echo "== 端口规划 ssh->$SSH_REMOTE_PORT  relay($RELAY_LOCAL_PORT)->$RELAY_REMOTE_PORT"
+echo "== 凭据 token=${FRP_TOKEN:0:4}****(${#FRP_TOKEN}位)  user=${FRP_USER:-<空>}"
+if [ "${#FRP_TOKEN}" -ne 16 ]; then
+  echo "!! 该 frps 要求 token 必须是 16 位字母或数字，当前 ${#FRP_TOKEN} 位 —— 大概率会被 token_format 拒掉。"
+  echo "!! 请到面板复制真实 token，再跑：FRP_TOKEN=xxxxxxxxxxxxxxxx FRP_USER=yyyy bash /tmp/frp.sh"
+fi
 
 echo "== [预检] 本机 sshd（frp 只是把本机 22 转出去，本机没 sshd 就白转）"
 if ! ss -lnt 2>/dev/null | grep -qE '(^|[.:])22 '; then
@@ -140,7 +145,7 @@ for spec in "0.61.1 toml" "0.58.1 toml" "0.52.3 toml" "0.51.3 ini" "0.44.0 ini";
     break
   fi
   echo "失败"
-  if grep -qiE "authentication failed|authorization failed|token .*doesn't match|invalid user|no permission" "$LOG"; then
+  if grep -qiE "authentication failed|authorization failed|token .*doesn't match|invalid user|no permission|token_format|令牌格式|重新下载完整配置" "$LOG"; then
     echo "!! 凭据被服务端拒绝，先停下（不是版本问题）。服务端原话："
     grep -iE "authentication|authorization|token|user|permission" "$LOG" | head -5
     echo "!! 请回面板重新复制 token / user，再用 FRP_TOKEN=... FRP_USER=... 重跑。"
