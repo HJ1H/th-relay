@@ -12,8 +12,8 @@ set -uo pipefail
 
 SERVER_ADDR="${FRP_SERVER:-103.24.219.85}"
 SERVER_PORT="${FRP_PORT:-7000}"
-FRP_TOKEN="${FRP_TOKEN:-212a868cbbbf7c01049fea68b13bf}"
-FRP_USER="${FRP_USER:-a0944fe9689ab}"
+FRP_TOKEN="${FRP_TOKEN:-}"
+FRP_USER="${FRP_USER:-}"
 SSH_REMOTE_PORT="${SSH_REMOTE_PORT:-41877}"
 RELAY_REMOTE_PORT="${RELAY_REMOTE_PORT:-6277}"
 RELAY_LOCAL_PORT="${RELAY_LOCAL_PORT:-8080}"
@@ -92,9 +92,14 @@ EOF
 
 echo "== 目标服务端 $SERVER_ADDR:$SERVER_PORT   本机架构 $ARCH"
 echo "== 端口规划 ssh->$SSH_REMOTE_PORT  relay($RELAY_LOCAL_PORT)->$RELAY_REMOTE_PORT"
-echo "== 凭据 token=${FRP_TOKEN:0:4}****(${#FRP_TOKEN}位)  user=${FRP_USER:-<空>}"
-if [ "${#FRP_TOKEN}" -ne 16 ]; then
-  echo "!! 该 frps 要求 token 必须是 16 位字母或数字，当前 ${#FRP_TOKEN} 位 —— 大概率会被 token_format 拒掉。"
+if [ -z "$FRP_TOKEN" ] || [ -z "$FRP_USER" ]; then
+  echo "!! 必须提供你自己账号的凭据（服务端按 user+token 成对校验，教程里那组是作者本人的，会报 privilege_key_mismatch）"
+  echo "!! 用法：FRP_TOKEN=xxx FRP_USER=yyy bash vps-frp.sh"
+  exit 1
+fi
+echo "== 凭据 token=${FRP_TOKEN:0:4}****(${#FRP_TOKEN}位)  user=${FRP_USER:0:4}****(${#FRP_USER}位)"
+if [ "${#FRP_USER}" -ne 16 ]; then
+  echo "!! 该 frps 要求 user 必须是 16 位字母或数字，当前 ${#FRP_USER} 位 —— 会被 token_format 拒掉。"
   echo "!! 请到面板复制真实 token，再跑：FRP_TOKEN=xxxxxxxxxxxxxxxx FRP_USER=yyyy bash /tmp/frp.sh"
 fi
 
@@ -145,7 +150,7 @@ for spec in "0.61.1 toml" "0.58.1 toml" "0.52.3 toml" "0.51.3 ini" "0.44.0 ini";
     break
   fi
   echo "失败"
-  if grep -qiE "authentication failed|authorization failed|token .*doesn't match|invalid user|no permission|token_format|令牌格式|重新下载完整配置" "$LOG"; then
+  if grep -qiE "authentication failed|authorization failed|token .*doesn't match|invalid user|no permission|token_format|令牌格式|重新下载完整配置|privilege_key_mismatch|连接凭证不正确" "$LOG"; then
     echo "!! 凭据被服务端拒绝，先停下（不是版本问题）。服务端原话："
     grep -iE "authentication|authorization|token|user|permission" "$LOG" | head -5
     echo "!! 请回面板重新复制 token / user，再用 FRP_TOKEN=... FRP_USER=... 重跑。"
