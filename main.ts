@@ -4,7 +4,15 @@
  * 路由：
  *   GET/POST /v1/*    → https://tokenharbor.ai/v1/*      （需 Authorization: Bearer thk_…）
  *   GET/POST /zen/*   → https://opencode.ai/zen/*        （需 Authorization: Bearer oc_…）
+ *   GET/POST /codex/* → https://chatgpt.com/backend-api/codex/*  （ChatGPT 订阅 OAuth token 原样透传）
  *   GET      /ip      → Deno 出口 IP（诊断用）
+ *
+ * /codex 是为 Codex 桌面端订阅态加的：ChatGPT OAuth token 只能用在
+ * chatgpt.com/backend-api/codex，不能用在 api.openai.com/v1（后者要 API key 的
+ * api.responses.write scope，OAuth token 没有，会 401）。Codex 配置里填
+ * base_url = "https://<app>.deno.net/codex" + requires_openai_auth = true，
+ * Codex 自动追加 /responses，请求到达 /codex/responses，这里剥掉 /codex 前缀
+ * 转发到 chatgpt.com/backend-api/codex/responses。
  *
  * 为什么要 /zen：OpenCode Zen 的免费模型按出口 IP 计每日额度（429 FreeUsageLimitError，
  * Retry-After 到 UTC 00:00）。校园网是整栋楼共享一个 NAT 出口，额度被别人吃光就轮不到自己。
@@ -29,6 +37,7 @@
 
 const TOKENHARBOR = "https://tokenharbor.ai";
 const OPENCODE_ZEN = "https://opencode.ai/zen";
+const CHATGPT_CODEX = "https://chatgpt.com/backend-api/codex";
 
 /** 官方 Free 列表里不带 -free 后缀的例外（Big Pickle，单价 $0） */
 const FREE_MODEL_EXCEPTIONS = new Set(["big-pickle"]);
@@ -136,6 +145,28 @@ Deno.serve(async (req: Request): Promise<Response> => {
       method: req.method,
       headers: forwardHeaders(req),
       body,
+      redirect: "manual",
+    });
+  }
+
+  // ── 上游 3：ChatGPT 订阅 / Codex（OAuth token 原样透传）────────────
+  // Codex 的 requires_openai_auth=true 会把订阅 OAuth token 放在 Authorization。
+  // 这里不校验 token 形态（eyJ… / sk-… 都放行），由上游 chatgpt.com 自己判。
+  // 不保存、不改写任何凭证；SSE 流通过 req.body 原样转发。
+  if (path === "/codex" || path.startsWith("/codex/")) {
+    const auth = req.headers.get("Authorization") || "";
+    if (!auth) {
+      return json(
+        { error: { message: "gateway: Authorization required for /codex", type: "unauthorized" } },
+        401,
+      );
+    }
+    const tail = path.slice("/codex".length) || "/";
+    const upstream = new URL(CHATGPT_CODEX + tail + url.search);
+    return fetch(upstream, {
+      method: req.method,
+      headers: forwardHeaders(req),
+      body: ["GET", "HEAD"].includes(req.method) ? undefined : req.body,
       redirect: "manual",
     });
   }
